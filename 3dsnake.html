@@ -1,0 +1,626 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Jungle Snake Game</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #2d5016 0%, #1a3009 100%);
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        #gameContainer {
+            position: relative;
+            border: 3px solid #8b4513;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            background: rgba(139, 69, 19, 0.2);
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #90EE90;
+            font-size: 18px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 100;
+            font-weight: bold;
+        }
+
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            text-align: center;
+            background: rgba(139, 69, 19, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            display: none;
+            z-index: 200;
+            border: 2px solid #8b4513;
+        }
+
+        #gameOver h2 {
+            margin: 0 0 20px 0;
+            font-size: 32px;
+            color: #ff4444;
+        }
+
+        #gameOver button {
+            background: linear-gradient(45deg, #228b22, #32cd32);
+            border: none;
+            color: white;
+            padding: 12px 25px;
+            font-size: 16px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            font-weight: bold;
+        }
+
+        #gameOver button:hover {
+            transform: scale(1.05);
+            background: linear-gradient(45deg, #32cd32, #228b22);
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #90EE90;
+            text-align: center;
+            font-size: 14px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+            font-weight: bold;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #90EE90;
+            font-size: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="loading">Loading Jungle...</div>
+        
+        <div id="ui" style="display: none;">
+            <div>Score: <span id="score">0</span></div>
+            <div>Length: <span id="length">3</span></div>
+            <div>Food Eaten: <span id="foodCount">0</span></div>
+        </div>
+        
+        <div id="gameOver">
+            <h2>Game Over!</h2>
+            <p>The snake hit the rocks!</p>
+            <p>Final Score: <span id="finalScore">0</span></p>
+            <p>Food Eaten: <span id="finalFoodCount">0</span></p>
+            <button onclick="restartGame()">Play Again</button>
+        </div>
+
+        <div id="instructions" style="display: none;">
+            Use WASD or Arrow Keys to move • Space to pause • Avoid the rock border!
+        </div>
+    </div>
+
+    <script>
+        // Game variables
+        let scene, camera, renderer;
+        let snake = [];
+        let food;
+        let direction = { x: 1, y: 0, z: 0 };
+        let gameRunning = true;
+        let gamePaused = false;
+        let score = 0;
+        let foodCount = 0;
+        let gameSpeed = 250;
+        let tongueAnimation = 0;
+
+        // Game settings
+        const BOARD_SIZE = 12;
+        const CUBE_SIZE = 0.8;
+
+        // Materials
+        let snakeHeadMaterial, snakeBodyMaterial, snakeTailMaterial, foodMaterial;
+        let rockMaterial, grassMaterial, treeMaterial, leafMaterial;
+
+        // Game objects
+        let rockBorder = [];
+        let trees = [];
+        let tongue;
+
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x2d5016);
+            scene.fog = new THREE.Fog(0x2d5016, 20, 50);
+
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, 800 / 600, 0.1, 1000);
+            camera.position.set(15, 15, 15);
+            camera.lookAt(0, 0, 0);
+
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(800, 600);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('gameContainer').appendChild(renderer.domElement);
+
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 15, 10);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 50;
+            directionalLight.shadow.camera.left = -20;
+            directionalLight.shadow.camera.right = 20;
+            directionalLight.shadow.camera.top = 20;
+            directionalLight.shadow.camera.bottom = -20;
+            scene.add(directionalLight);
+
+            // Create materials
+            createMaterials();
+
+            // Create environment
+            createGround();
+            createRockBorder();
+            createTrees();
+
+            // Initialize snake
+            initSnake();
+
+            // Create first food
+            createFood();
+
+            // Hide loading and show UI
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('ui').style.display = 'block';
+            document.getElementById('instructions').style.display = 'block';
+
+            // Start game loop
+            gameLoop();
+        }
+
+        function createMaterials() {
+            // Snake materials
+            snakeHeadMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x228b22,
+                shininess: 100 
+            });
+            snakeBodyMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x32cd32,
+                shininess: 50 
+            });
+            snakeTailMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x006400,
+                shininess: 30 
+            });
+
+            // Environment materials
+            rockMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x696969,
+                shininess: 10 
+            });
+            grassMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x228b22,
+                shininess: 5 
+            });
+            treeMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x8b4513,
+                shininess: 10 
+            });
+            leafMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x228b22,
+                shininess: 20 
+            });
+            foodMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xff4500,
+                shininess: 100,
+                emissive: 0x441100
+            });
+        }
+
+        function createGround() {
+            const groundGeometry = new THREE.PlaneGeometry(40, 40);
+            const ground = new THREE.Mesh(groundGeometry, grassMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+        }
+
+        function createRockBorder() {
+            rockBorder = [];
+            const borderSize = BOARD_SIZE + 1;
+            
+            for (let x = -borderSize; x <= borderSize; x++) {
+                for (let z = -borderSize; z <= borderSize; z++) {
+                    // Only create rocks on the border
+                    if (x === -borderSize || x === borderSize || z === -borderSize || z === borderSize) {
+                        const rockHeight = 0.5 + Math.random() * 0.5;
+                        const rockGeometry = new THREE.BoxGeometry(
+                            0.8 + Math.random() * 0.4, 
+                            rockHeight, 
+                            0.8 + Math.random() * 0.4
+                        );
+                        const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+                        rock.position.set(x, rockHeight / 2, z);
+                        rock.rotation.y = Math.random() * Math.PI;
+                        rock.castShadow = true;
+                        rock.receiveShadow = true;
+                        scene.add(rock);
+                        rockBorder.push({ x, z });
+                    }
+                }
+            }
+        }
+
+        function createTrees() {
+            trees = [];
+            for (let i = 0; i < 30; i++) {
+                const x = (Math.random() - 0.5) * 60;
+                const z = (Math.random() - 0.5) * 60;
+                
+                // Don't place trees too close to the game area
+                if (Math.abs(x) < 18 && Math.abs(z) < 18) continue;
+                
+                createTree(x, z);
+            }
+        }
+
+        function createTree(x, z) {
+            // Tree trunk
+            const trunkHeight = 3 + Math.random() * 2;
+            const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.4, trunkHeight, 8);
+            const trunk = new THREE.Mesh(trunkGeometry, treeMaterial);
+            trunk.position.set(x, trunkHeight / 2, z);
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            scene.add(trunk);
+
+            // Tree leaves
+            const leafGeometry = new THREE.SphereGeometry(1.5 + Math.random(), 6, 4);
+            const leaves = new THREE.Mesh(leafGeometry, leafMaterial);
+            leaves.position.set(x, trunkHeight + 1, z);
+            leaves.castShadow = true;
+            leaves.receiveShadow = true;
+            scene.add(leaves);
+
+            trees.push({ trunk, leaves });
+        }
+
+        function initSnake() {
+            snake = [];
+            // Create initial snake segments
+            for (let i = 0; i < 3; i++) {
+                const segment = createSnakeSegment(-i, 0, 0, i === 0, i === 2);
+                snake.push(segment);
+            }
+        }
+
+        function createSnakeSegment(x, y, z, isHead = false, isTail = false) {
+            let geometry, material;
+            
+            if (isHead) {
+                // Snake head - more elongated
+                geometry = new THREE.SphereGeometry(CUBE_SIZE * 0.6, 8, 6);
+                material = snakeHeadMaterial;
+            } else if (isTail) {
+                // Snake tail - tapered
+                geometry = new THREE.ConeGeometry(CUBE_SIZE * 0.3, CUBE_SIZE, 6);
+                material = snakeTailMaterial;
+            } else {
+                // Snake body
+                geometry = new THREE.SphereGeometry(CUBE_SIZE * 0.5, 6, 4);
+                material = snakeBodyMaterial;
+            }
+            
+            const segment = new THREE.Mesh(geometry, material);
+            segment.position.set(x, y + 0.4, z);
+            segment.castShadow = true;
+            segment.receiveShadow = true;
+            scene.add(segment);
+
+            const segmentData = { mesh: segment, x, y, z, isHead, isTail };
+
+            // Add eyes to head
+            if (isHead) {
+                createEyes(segmentData);
+                createTongue(segmentData);
+            }
+
+            return segmentData;
+        }
+
+        function createEyes(headSegment) {
+            const eyeGeometry = new THREE.SphereGeometry(0.08, 6, 4);
+            const eyeMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+            
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            
+            leftEye.position.set(-0.2, 0.2, 0.4);
+            rightEye.position.set(0.2, 0.2, 0.4);
+            
+            headSegment.mesh.add(leftEye);
+            headSegment.mesh.add(rightEye);
+            
+            headSegment.leftEye = leftEye;
+            headSegment.rightEye = rightEye;
+        }
+
+        function createTongue(headSegment) {
+            const tongueGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.5, 4);
+            const tongueMaterial = new THREE.MeshPhongMaterial({ color: 0xff69b4 });
+            
+            tongue = new THREE.Mesh(tongueGeometry, tongueMaterial);
+            tongue.position.set(0, 0, 0.6);
+            tongue.rotation.x = Math.PI / 2;
+            tongue.visible = false;
+            
+            headSegment.mesh.add(tongue);
+            headSegment.tongue = tongue;
+        }
+
+        function createFood() {
+            if (food) {
+                scene.remove(food.mesh);
+            }
+
+            let foodX, foodY, foodZ;
+            let validPosition = false;
+
+            // Find valid food position within the rock border
+            while (!validPosition) {
+                foodX = Math.floor(Math.random() * BOARD_SIZE) - Math.floor(BOARD_SIZE / 2);
+                foodY = 0;
+                foodZ = Math.floor(Math.random() * BOARD_SIZE) - Math.floor(BOARD_SIZE / 2);
+                
+                validPosition = true;
+                // Check if position is not occupied by snake
+                for (let segment of snake) {
+                    if (segment.x === foodX && segment.z === foodZ) {
+                        validPosition = false;
+                        break;
+                    }
+                }
+            }
+
+            // Create an apple-like food
+            const geometry = new THREE.SphereGeometry(CUBE_SIZE * 0.4, 8, 6);
+            const mesh = new THREE.Mesh(geometry, foodMaterial);
+            mesh.position.set(foodX, foodY + 0.4, foodZ);
+            mesh.castShadow = true;
+            scene.add(mesh);
+
+            // Add a small stem
+            const stemGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.2, 4);
+            const stemMaterial = new THREE.MeshPhongMaterial({ color: 0x8b4513 });
+            const stem = new THREE.Mesh(stemGeometry, stemMaterial);
+            stem.position.set(0, 0.3, 0);
+            mesh.add(stem);
+
+            food = { mesh, x: foodX, y: foodY, z: foodZ };
+            animateFood();
+        }
+
+        function animateFood() {
+            if (!food || !gameRunning) return;
+            
+            food.mesh.rotation.y += 0.01;
+            food.mesh.position.y = 0.4 + Math.sin(Date.now() * 0.003) * 0.1;
+            
+            requestAnimationFrame(animateFood);
+        }
+
+        function updateSnakeDirection() {
+            const head = snake[0];
+            if (!head) return;
+
+            // Update head rotation to face movement direction
+            if (direction.x === 1) head.mesh.rotation.y = 0;
+            else if (direction.x === -1) head.mesh.rotation.y = Math.PI;
+            else if (direction.z === 1) head.mesh.rotation.y = Math.PI / 2;
+            else if (direction.z === -1) head.mesh.rotation.y = -Math.PI / 2;
+
+            // Animate tongue
+            tongueAnimation += 0.1;
+            if (head.tongue) {
+                head.tongue.visible = Math.sin(tongueAnimation * 3) > 0.7;
+                head.tongue.scale.y = 0.5 + Math.sin(tongueAnimation * 2) * 0.3;
+            }
+        }
+
+        function moveSnake() {
+            if (!gameRunning || gamePaused) return;
+
+            const head = snake[0];
+            const newX = head.x + direction.x;
+            const newY = head.y + direction.y;
+            const newZ = head.z + direction.z;
+
+            // Check rock border collision
+            const borderSize = BOARD_SIZE;
+            if (newX <= -borderSize || newX >= borderSize || newZ <= -borderSize || newZ >= borderSize) {
+                gameOver();
+                return;
+            }
+
+            // Check self collision
+            for (let segment of snake) {
+                if (segment.x === newX && segment.z === newZ) {
+                    gameOver();
+                    return;
+                }
+            }
+
+            // Check food collision
+            let ateFood = false;
+            if (food && newX === food.x && newZ === food.z) {
+                ateFood = true;
+                score += 10;
+                foodCount++;
+                updateUI();
+                createFood();
+                
+                // Increase speed slightly
+                gameSpeed = Math.max(150, gameSpeed - 3);
+            }
+
+            // Create new head
+            const newHead = createSnakeSegment(newX, newY, newZ, true, false);
+            snake.unshift(newHead);
+
+            // Update old head to body
+            if (snake.length > 1) {
+                const oldHead = snake[1];
+                scene.remove(oldHead.mesh);
+                oldHead.mesh = new THREE.Mesh(
+                    new THREE.SphereGeometry(CUBE_SIZE * 0.5, 6, 4), 
+                    snakeBodyMaterial
+                );
+                oldHead.mesh.position.set(oldHead.x, oldHead.y + 0.4, oldHead.z);
+                oldHead.mesh.castShadow = true;
+                oldHead.mesh.receiveShadow = true;
+                oldHead.isHead = false;
+                scene.add(oldHead.mesh);
+            }
+
+            // Update tail
+            if (snake.length > 2) {
+                const tail = snake[snake.length - 1];
+                scene.remove(tail.mesh);
+                tail.mesh = new THREE.Mesh(
+                    new THREE.ConeGeometry(CUBE_SIZE * 0.3, CUBE_SIZE, 6), 
+                    snakeTailMaterial
+                );
+                tail.mesh.position.set(tail.x, tail.y + 0.4, tail.z);
+                tail.mesh.castShadow = true;
+                tail.mesh.receiveShadow = true;
+                scene.add(tail.mesh);
+            }
+
+            // Remove tail if no food eaten
+            if (!ateFood) {
+                const tail = snake.pop();
+                scene.remove(tail.mesh);
+            }
+
+            updateSnakeDirection();
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('finalFoodCount').textContent = foodCount;
+            document.getElementById('gameOver').style.display = 'block';
+        }
+
+        function restartGame() {
+            // Clean up
+            for (let segment of snake) {
+                scene.remove(segment.mesh);
+            }
+            if (food) {
+                scene.remove(food.mesh);
+            }
+
+            // Reset game state
+            snake = [];
+            direction = { x: 1, y: 0, z: 0 };
+            gameRunning = true;
+            gamePaused = false;
+            score = 0;
+            foodCount = 0;
+            gameSpeed = 250;
+            tongueAnimation = 0;
+
+            // Hide game over screen
+            document.getElementById('gameOver').style.display = 'none';
+
+            // Reinitialize
+            initSnake();
+            createFood();
+            updateUI();
+        }
+
+        function updateUI() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('length').textContent = snake.length;
+            document.getElementById('foodCount').textContent = foodCount;
+        }
+
+        function gameLoop() {
+            moveSnake();
+            renderer.render(scene, camera);
+            
+            if (gameRunning) {
+                setTimeout(() => requestAnimationFrame(gameLoop), gameSpeed);
+            }
+        }
+
+        // Input handling
+        document.addEventListener('keydown', (event) => {
+            if (!gameRunning) return;
+
+            switch(event.code) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    if (direction.z !== 1) direction = { x: 0, y: 0, z: -1 };
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    if (direction.z !== -1) direction = { x: 0, y: 0, z: 1 };
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    if (direction.x !== 1) direction = { x: -1, y: 0, z: 0 };
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    if (direction.x !== -1) direction = { x: 1, y: 0, z: 0 };
+                    break;
+                case 'Space':
+                    event.preventDefault();
+                    gamePaused = !gamePaused;
+                    if (!gamePaused) gameLoop();
+                    break;
+            }
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = 800 / 600;
+            camera.updateProjectionMatrix();
+            renderer.setSize(800, 600);
+        });
+
+        // Start the game
+        init();
+    </script>
+</body>
+</html>
